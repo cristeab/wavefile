@@ -1,318 +1,357 @@
-#include "StdAfx.h"
+#include <cstdio>
+#include <limits>
 #include "Wave.h"
-#include "math.h"
 
+struct FileLock {
+	FileLock(FILE *f) : file_(f) {}
+	~FileLock() {
+		if (NULL != file_) {
+			fclose(file_);
+		}
+	}
+	operator FILE*() const { return file_; }
+	bool isValid() const { return (NULL != file_); }
+private:
+	FILE *file_ = NULL;
+};
 
-CWave::CWave(void)
+Wave::Wave() : headerSize(sizeof(descriptor_)+sizeof(format_)+8)
 {
 	// Init members
-	memset(&m_Descriptor, 0, sizeof(_WAVEDESCR));
-	memset(&m_Format, 0, sizeof(_WAVEFORMAT));
-	m_lpData = NULL;
-	m_dwSize = 0;
-	m_hWaveout = NULL;
-	memset(&m_WaveHeader, 0, sizeof(WAVEHDR));
-	m_bPaused = FALSE;
-	m_bStopped = TRUE;
+	memset(&descriptor_, 0, sizeof(descriptor_));
+	memset(&format_, 0, sizeof(format_));
 }
 
-CWave::~CWave(void)
+int Wave::load(const std::string &filePath)
 {
-	// Close output device
-	Close();
-}
-
-BOOL CWave::Open(SHORT channels, DWORD sampleRate, SHORT bitsPerSample)
-{
-	BOOL bResult = TRUE;
-
-	// Open output device
-	SHORT format = WAVE_FORMAT_PCM;
-	SHORT blockAlign = channels << 1;
-	WAVEFORMATEX wfex;
-	wfex.wFormatTag = format;
-	wfex.nChannels = channels;
-	wfex.nSamplesPerSec = sampleRate;
-	wfex.nAvgBytesPerSec = blockAlign * sampleRate;
-	wfex.nBlockAlign = blockAlign;
-	wfex.wBitsPerSample = bitsPerSample;
-	wfex.cbSize = 0;
-	if (waveOutOpen(&m_hWaveout, WAVE_MAPPER, &wfex, (DWORD_PTR)&CWave::WaveOut_Proc, (DWORD_PTR)this, CALLBACK_FUNCTION) != MMSYSERR_NOERROR)
-	{
-		m_hWaveout = NULL;
-		bResult = FALSE;
-	}
-	m_bPaused = FALSE;
-	m_bStopped = TRUE;
-
-	return bResult;
-}
-
-BOOL CWave::Close()
-{
-	BOOL bResult = TRUE;
-
-	// Stop playback
-	if (Stop())
-	{
-		// Close output device
-		if (waveOutClose(m_hWaveout) != MMSYSERR_NOERROR)
-		{
-			m_hWaveout = NULL;
-			bResult = FALSE;
-		}
-	}
-
-	// Check for valid sound data
-	if (IsValid())
-	{
-		// Clear sound data buffer
-		free(m_lpData);
-		m_lpData = NULL;
-		m_dwSize = 0;
-	}
-
-	return bResult;
-}
-
-BOOL CWave::Load(LPTSTR lpszFilePath)
-{
-	BOOL bResult = FALSE;
-
-	// Close output device
-	Close();
-
 	// Load .WAV file
-	FILE* file = _tfopen(lpszFilePath, _T("rb"));
-	if (file != NULL)
-	{
-		// Read .WAV descriptor
-		fread(&m_Descriptor, sizeof(_WAVEDESCR), 1, file);
-
-		// Check for valid .WAV file
-		if (strncmp((LPCSTR)m_Descriptor.wave, "WAVE", 4) == 0)
-		{
-			// Read .WAV format
-			fread(&m_Format, sizeof(_WAVEFORMAT), 1, file);
-
-			// Check for valid .WAV file
-			if ((strncmp((LPCSTR)m_Format.id, "fmt", 3) == 0) && (m_Format.format == 1))
-			{
-				// Read next chunk
-				BYTE id[4];
-				DWORD size;
-				fread(id, sizeof(BYTE), 4, file);
-				fread(&size, sizeof(DWORD), 1, file);
-				DWORD offset = ftell(file);
-
-				// Read .WAV data
-				LPBYTE lpTemp = (LPBYTE)malloc(m_Descriptor.size*sizeof(BYTE));
-				while (offset < m_Descriptor.size)
-				{
-					// Check for .WAV data chunk
-					if (strncmp((LPCSTR)id, "data", 4) == 0)
-					{
-						if (m_lpData == NULL)
-							m_lpData = (LPBYTE)malloc(size*sizeof(BYTE));
-						else
-							m_lpData = (LPBYTE)realloc(m_lpData, (m_dwSize+size)*sizeof(BYTE));
-						fread(m_lpData+m_dwSize, sizeof(BYTE), size, file);
-						m_dwSize += size;
-					}
-					else
-						fread(lpTemp, sizeof(BYTE), size, file);
-
-					// Read next chunk
-					fread(id, sizeof(BYTE), 4, file);
-					fread(&size, sizeof(DWORD), 1, file);
-					offset = ftell(file);
-				}
-				free(lpTemp);
-
-				// Open output device
-				if (!Open(m_Format.channels, m_Format.sampleRate, m_Format.bitsPerSample))
-				{
-					m_hWaveout = NULL;
-					bResult = FALSE;
-				}
-				else
-					bResult = TRUE;
-			}
+	FileLock file = fopen(filePath.c_str(), "rb");
+	if (!file.isValid()) {
+		return EXIT_FAILURE;
+	}
+	// Read .WAV descriptor
+	size_t count = fread(&descriptor_, sizeof(descriptor_), 1, file);
+	if (1 != count) {
+		return EXIT_FAILURE;
+	}
+	// Check for valid .WAV file
+	if ((0 != strncmp(descriptor_.riff, "RIFF", 4)) ||
+		(0 != strncmp(descriptor_.wave, "WAVE", 4))) {
+		return EXIT_FAILURE;
+	}
+	// Read .WAV format
+	count = fread(&format_, sizeof(format_), 1, file);
+	if (1 != count) {
+		return EXIT_FAILURE;
+	}
+	// Check for valid .WAV file
+	if (0 != strncmp(format_.id, "fmt ", 4)) {
+		return EXIT_FAILURE;
+	}
+	// Read next chunk
+	char id[4];
+	do {
+		count = fread(id, sizeof(id), 1, file);
+		if (1 != count) {
+			return EXIT_FAILURE;
 		}
-
-		// Close .WAV file
-		fclose(file);
+	} while (0 != strncmp(id, "data", 4));
+	count = fread(&size_, sizeof(size_), 1, file);
+	if (1 != count) {
+		return EXIT_FAILURE;
+	}
+	uint32_t offset = ftell(file);
+	// Read .WAV data
+	data_.reset(new char[size_]);
+	count = fread(data_.get(), size_*sizeof(char), 1, file);
+	if (1 != count) {
+		return EXIT_FAILURE;
 	}
 
-	return bResult;
+	return EXIT_SUCCESS;
 }
 
-BOOL CWave::Save(LPTSTR lpszFilePath)
+int Wave::save(const std::string &filePath)
 {
-	BOOL bResult = FALSE;
-
 	// Save .WAV file
-	FILE* file = _tfopen(lpszFilePath, _T("wb"));
-	if (file != NULL)
-	{
-		// Save .WAV descriptor
-		m_Descriptor.size = m_dwSize;
-		fwrite(&m_Descriptor, sizeof(_WAVEDESCR), 1, file);
-
-		// Save .WAV format
-		fwrite(&m_Format, sizeof(_WAVEFORMAT), 1, file);
-
-		// Write .WAV data
-		BYTE id[4] = {'d', 'a', 't', 'a'};
-		fwrite(id, sizeof(BYTE), 4, file);
-		fwrite(&m_dwSize, sizeof(DWORD), 1, file);
-		fwrite(m_lpData, sizeof(BYTE), m_dwSize, file);
-		bResult = TRUE;
-
-		// Close .WAV file
-		fclose(file);
+	FileLock file = fopen(filePath, "wb");
+	if (!file.isValid()) {
+		return EXIT_FAILURE;
+	}
+	// Save .WAV descriptor
+	size_t count = fwrite(&descriptor_, sizeof(descriptor_), 1, file);
+	if (1 != count) {
+		return EXIT_FAILURE;
+	}
+	// Save .WAV format
+	count = fwrite(&format_, sizeof(format_), 1, file);
+	if (1 != count) {
+		return EXIT_FAILURE;
+	}
+	// Write .WAV data
+	static const char id[4] = {'d', 'a', 't', 'a'};
+	count = fwrite(id, sizeof(id), 1, file);
+	if (1 != count) {
+		return EXIT_FAILURE;
+	}
+	count = fwrite(&size_, sizeof(size_), 1, file);
+	if (1 != count) {
+		return EXIT_FAILURE;
+	}
+	count = fwrite(data_.get(), size_*sizeof(char), 1, file);
+	if (1 != count) {
+		return EXIT_FAILURE;
 	}
 
-	return bResult;
+	return EXIT_SUCCESS;
 }
 
-BOOL CWave::Play()
+int Wave::raw2float(float *&samp, uint32_t &sampSize, const char *raw,
+		uint32_t rawSize, uint16_t bitsPerSample)
 {
-	BOOL bResult = TRUE;
-
-	// Check for valid sound data
-	if (IsValid() && (m_bStopped || m_bPaused))
-	{
-		if (m_bPaused)
+	sampSize = rawSize/(bitsPerSample/8);
+	samp = new float[sampSize];
+	switch (bitsPerSample) {
+		case 8:
 		{
-			// Continue playback
-			if (waveOutRestart(m_hWaveout) != MMSYSERR_NOERROR)
-				bResult = FALSE;
-		}
-		else
-		{
-			// Start playback
-			m_WaveHeader.lpData = (LPSTR)m_lpData;
-			m_WaveHeader.dwBufferLength = m_dwSize;
-			if (waveOutPrepareHeader(m_hWaveout, &m_WaveHeader, sizeof(WAVEHDR)) != MMSYSERR_NOERROR)
-				bResult = FALSE;
-			else
-			{
-				if (waveOutWrite(m_hWaveout, &m_WaveHeader, sizeof(WAVEHDR)) != MMSYSERR_NOERROR)
-					bResult = FALSE;
+			const float max = std::numeric_limits<char>::max();
+			for (uint32_t i = 0; i < sampSize; ++i) {
+				samp[i] = reinterpret_cast<float>(raw[i])/max;		
 			}
 		}
-		m_bPaused = FALSE;
-		m_bStopped = FALSE;
+		break;
+		case 16:
+		{
+			const float max = std::numeric_limits<int16_t>::max();
+			const int16_t *ptr = reinterpret_cast<int16_t*>(raw);
+			for (uint32_t i = 0; i < sampSize; ++i) {
+				samp[i] = reinterpret_cast<float>(ptr[i])/max;
+			}
+		}
+		break;
+		case 24:
+		{
+			const float max = std::numeric_limits<int32_t>::max()-256;
+			for (uint32_t i = 0; i < sampSize; ++i) {
+				int tmpSamp = (raw[2] << 24) | (raw[1] << 16) | (raw[0] << 8);
+				raw += 3;
+				samp[i] = tmpSamp/max;
+			}
+		}
+		break;
+		case 32:
+		{
+			const float max = std::numeric_limits<int32_t>::max();
+			const int32_t *ptr = reinterpret_cast<int32_t*>(raw);
+			for (uint32_t i = 0; i < sampSize; ++i) {
+				samp[i] = reinterpret_cast<float>(ptr[i])/max;
+			}
+		}
+		break;
+		default:
+		delete[] samp;
+		samp = nullptr;
+		sampSize = 0;
+		return EXIT_FAILURE;
 	}
-
-	return bResult;
+	return EXIT_SUCCESS;
 }
 
-BOOL CWave::Stop()
+int Wave::float2raw(char *&raw, uint32_t &rawSize, const float *samp,
+		uint32_t sampSize, uint16_t bitsPerSample)
 {
-	BOOL bResult = TRUE;
-
-	// Check for valid sound data
-	if (IsValid() && (!m_bStopped))
-	{
-		// Stop playback
-		m_bStopped = TRUE;
-		if (waveOutReset(m_hWaveout) != MMSYSERR_NOERROR)
-			bResult = FALSE;
-		else
+	rawSize = sampSize*(bitsPerSample/8);
+	raw = new char[rawSize];
+	switch (bitsPerSample) {
+		case 8:
 		{
-			if (waveOutUnprepareHeader(m_hWaveout, &m_WaveHeader, sizeof(WAVEHDR)) != MMSYSERR_NOERROR)
-				bResult = FALSE;
+			const float max = std::numeric_limits<char>::max();
+			for (uint32_t i = 0; i < sampSize; ++i) {
+				raw[i] = reinterpret_cast<char>(max*samp[i]);
+			}
+		}
+		break;
+		case 16:
+		{
+			const float max = std::numeric_limits<int16_t>::max();
+			int16_t *ptr = reinterpret_cast<int16_t*>(raw);
+			for (uint32_t i = 0; i < sampSize; ++i) {
+				ptr[i] = reinterpret_cast<int16_t>(max*samp[i]);
+			}
+		}
+		break;
+		case 24:
+		{
+			const float max = std::numeric_limits<int32_t>::max()-256;
+			char *ptr = raw;
+			for (uint32_t i = 0; i < sampSize; ++i) {
+				const int tmpSamp = reinterpret_cast<int>(max*samp[i]);
+				ptr[2] = reinterpret_cast<char>(tmpSamp >> 24);
+				ptr[1] = reinterpret_cast<char>(tmpSamp >> 16);
+				ptr[0] = reinterpret_cast<char>(tmpSamp >> 8);
+				ptr += 3;
+			}
+		}
+		break;
+		case 32:
+		{
+			const float max = std::numeric_limits<int32_t>::max();
+			int32_t *ptr = reinterpret_cast<int32_t*>(raw);
+			for (uint32_t i = 0; i < sampSize; ++i) {
+				ptr[i] = reinterpret_cast<int32_t>(max*samp[i]);
+			}
+		}
+		break;
+		default:
+		delete []raw;
+		raw = nullptr;
+		rawSize = 0;
+		return EXIT_FAILURE;
+	}
+	return EXIT_SUCCESS;
+}
+
+float Wave::mixSamples(float left, float right)
+{
+	float mix = left+right;
+	if ((left < 0) && (right < 0)) {
+		mix += left*right;
+	} else if ((left > 0) && (right > 0)) {
+		mix -= left*right;
+	}
+	return mix;
+}
+
+int Wave::mix()
+{
+	if (1 == format_.channels) {
+		return EXIT_SUCCESS;
+	}
+	float *data = nullptr;
+	uint32_t dataSize = 0;
+	int rc = EXIT_FAILURE;
+	switch (format_.format) {
+		case WAVE_FORMAT_PCM:
+		rc = raw2float(data, dataSize, data_.get(), size_, format_.bitsPerSample);
+		if (EXIT_SUCSESS != rc) {
+			return rc;
+		}
+		break;
+		case WAVE_FORMAT_IEEE_FLOAT:
+		data = data_.release();
+		dataSize = size_;
+		break;
+		default:
+		return EXIT_FAILURE;
+	}
+	size_ = dataSize/format_.channels;
+	data_.reset(new float[size_]);
+	for (uint32_t i = 0; i < size_; ++i) {
+		data_[i] = data[format_.channels*i];
+		for (uint16_t c = 1; c < format_.channels; ++c) {
+			data_[i] = mixSamples(data_[i], data[format_.channels*i+c]);
 		}
 	}
-
-	return bResult;
-}
-
-BOOL CWave::Pause()
-{
-	BOOL bResult = TRUE;
-
-	// Check for valid sound data
-	if (IsValid() && (!m_bPaused) && (!m_bStopped))
-	{
-		// Pause playback
-		m_bPaused = TRUE;
-		if (waveOutPause(m_hWaveout) != MMSYSERR_NOERROR)
-			bResult = FALSE;
+	delete[] data;
+	//restore format if needed
+	if (WAVE_FORMAT_PCM == format_.format) {
+		char *rawData = nullptr;
+		uint32_t rawDataSize = 0;
+		rc = float2raw(rawData, rawDataSize, data_.get(), size_, format_.bitsPerSample);
+		if (EXIT_SUCSESS != rc) {
+			return rc;
+		}
+		data_.reset(rawData);
+		size_ = rawDataSize;
 	}
-
-	return bResult;
+	format_.channels = 1;
+	descriptor_.size = size_+headerSize-8;
+	format_.byteRate = format_.sampleRate*format_.channels*format_.bitsPerSample/8;
+	format_.blockAlign = format_.channels*format_.bitsPerSample/8;
+	return EXIT_SUCCESS;
 }
 
-BOOL CWave::Mix(CWave& wave)
+std::unique_ptr<Wave> Wave::getChannel(uint16_t channel)
 {
-	BOOL bResult = FALSE;
+	std::unique_ptr<Wave> chWave(new Wave());
+	memcpy(&chWave->descriptor_, &descriptor_, sizeof(descriptor_));
+	memcpy(&chWave->format_, &format_, sizeof(format_));
+	if (1 == format_.channels) {
+		chWave->size_ = size_;
+		chWave->data_.reset(new char[size_]);
+		memcpy(chWave->data_.get(), data_, size_);
+		return chWave;//just return a copy of itself
+	}
+	chWave->format_.channels = 1;
+	chWave->size_ = size_/format_.channels;
+	chWave->data_.reset(new char[chWave->size_]);
+	chWave->descriptor_.size = size_+headerSize-8;
+	chWave->format_.byteRate = chWave->format_.sampleRate*chWave->format_.channels*
+		chWave->format_.bitsPerSample/8;
+	chWave->format_.blockAlign = chWave->format_.channels*chWave->format_.bitsPerSample/8;
 
-	// Check for valid sound data
-	if ((IsValid() && m_bStopped) && (wave.IsValid() && wave.IsStopped()))
-	{
-		// Check for valid sound format
-		if ((m_Format.channels == wave.GetChannels()) && (m_Format.sampleRate == wave.GetSampleRate()) && (m_Format.bitsPerSample == wave.GetBitsPerSample()))
+	//copy the requested channel
+	switch (chWave->format_.format) {
+		case WAVE_FORMAT_PCM:
 		{
-			// Mix .WAVs
-			long sampleSize = min(m_dwSize, wave.GetSize()) / (m_Format.bitsPerSample >> 3);
-			switch (m_Format.bitsPerSample)
-			{
+			switch (format_.bitsPerSample) {
 				case 8:
-					{
-						LPBYTE lpSrcData = wave.GetData();
-						LPBYTE lpDstData = m_lpData;
-						float gain = log10(20.0f);
-						for (long i=0; i<sampleSize; i++)
-						{
-							*lpDstData = (BYTE)(((*lpSrcData+*lpDstData)>>1)*gain);
-							lpSrcData++;
-							lpDstData++;
-						}
+				{
+					char *src = data_.get();
+					char *dst = chWave->data_.get();
+					for (uint32_t i = 0; i < chWave->size_; ++i) {
+						dst[i] = src[i*format_.channels+channel];
 					}
-					break;
-
+				}
+				break;
 				case 16:
-					{
-						LPWORD lpSrcData = (LPWORD)wave.GetData();
-						LPWORD lpDstData = (LPWORD)m_lpData;
-						for (long i=0; i<sampleSize; i++)
-						{
-							float sample1 = (*lpSrcData - 32768) / 32768.0f;
-							float sample2 = (*lpDstData - 32768) / 32768.0f;
-							if (fabs(sample1*sample2) > 0.25f)
-								*lpDstData = (WORD)(*lpSrcData + *lpDstData);
-							else
-								*lpDstData = fabs(sample1) < fabs(sample2) ? *lpSrcData : *lpDstData;
-							lpSrcData++;
-							lpDstData++;
-						}
+				{
+					int16_t *src = reinterpret_cast<int16_t*>(data_.get());
+					int16_t *dst = reinterpret_cast<int16_t*>(chWave->data_.get());
+					for (uint32_t i = 0; i < chWave->size_; ++i) {
+						dst[i] = src[i*format_.channels+channel];
 					}
-					break;
+				}
+				break;
+				case 24:
+				{
+					char *src = data_.get();
+					char *dst = chWave->data_.get();
+					src += 3*channel;
+					for (uint32_t i = 0; i < chWave->size_; ++i) {
+						dst[0] = src[0];
+						dst[1] = src[1];
+						dst[2] = src[2];
+						dst += 3;
+						src += 3*format_.channels;
+					}					
+				}
+				break;
+				case 32:
+				{
+					int32_t *src = reinterpret_cast<int32_t*>(data_.get());
+					int32_t *dst = reinterpret_cast<int32_t*>(chWave->data_.get());
+					for (uint32_t i = 0; i < chWave->size_; ++i) {
+						dst[i] = src[i*format_.channels+channel];
+					}
+				}
+				break;
+				default:
+				return std::unique_ptr<Wave>();
 			}
-			bResult = TRUE;
 		}
+		break;
+		case WAVE_FORMAT_IEEE_FLOAT:
+		{
+			float *src = reinterpret_cast<float*>(data_.get());
+			float *dst = reinterpret_cast<float*>(chWave->data_.get());
+			for (uint32_t i = 0; i < chWave->size_; ++i) {
+				dst[i] = src[i*format_.channels+channel];
+			}
+		}
+		break;
+		default:
+		return std::unique_ptr<Wave>();
 	}
-
-	return bResult;
-}
-
-BOOL CWave::WaveOut_Proc(HWAVEOUT hwi, UINT uMsg, DWORD dwInstance, DWORD dwParam1, DWORD dwParam2)
-{
-	BOOL bResult = TRUE;
-
-	// Get current object
-	CWave* pWave = (CWave*)((DWORD_PTR)&dwInstance);
-
-	// Check for playback finished
-	if ((uMsg == WOM_DONE) && ((!pWave->m_bStopped) || (!pWave->m_bPaused)))
-	{
-		// Relase sound info
-		if (waveOutUnprepareHeader(pWave->m_hWaveout, &pWave->m_WaveHeader, sizeof(WAVEHDR)) != MMSYSERR_NOERROR)
-			bResult = FALSE;
-	}
-
-	return bResult;
+	return chWave;
 }
