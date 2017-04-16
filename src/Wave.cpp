@@ -1,5 +1,6 @@
 #include <cstdio>
 #include <limits>
+#include <cstdlib>
 #include "Wave.h"
 
 struct FileLock {
@@ -74,7 +75,7 @@ int Wave::load(const std::string &filePath)
 int Wave::save(const std::string &filePath)
 {
 	// Save .WAV file
-	FileLock file = fopen(filePath, "wb");
+	FileLock file = fopen(filePath.c_str(), "wb");
 	if (!file.isValid()) {
 		return EXIT_FAILURE;
 	}
@@ -116,16 +117,16 @@ int Wave::raw2float(float *&samp, uint32_t &sampSize, const char *raw,
 		{
 			const float max = std::numeric_limits<char>::max();
 			for (uint32_t i = 0; i < sampSize; ++i) {
-				samp[i] = reinterpret_cast<float>(raw[i])/max;		
+				samp[i] = static_cast<float>(raw[i])/max;		
 			}
 		}
 		break;
 		case 16:
 		{
 			const float max = std::numeric_limits<int16_t>::max();
-			const int16_t *ptr = reinterpret_cast<int16_t*>(raw);
+			const int16_t *ptr = reinterpret_cast<const int16_t*>(raw);
 			for (uint32_t i = 0; i < sampSize; ++i) {
-				samp[i] = reinterpret_cast<float>(ptr[i])/max;
+				samp[i] = static_cast<float>(ptr[i])/max;
 			}
 		}
 		break;
@@ -142,9 +143,9 @@ int Wave::raw2float(float *&samp, uint32_t &sampSize, const char *raw,
 		case 32:
 		{
 			const float max = std::numeric_limits<int32_t>::max();
-			const int32_t *ptr = reinterpret_cast<int32_t*>(raw);
+			const int32_t *ptr = reinterpret_cast<const int32_t*>(raw);
 			for (uint32_t i = 0; i < sampSize; ++i) {
-				samp[i] = reinterpret_cast<float>(ptr[i])/max;
+				samp[i] = static_cast<float>(ptr[i])/max;
 			}
 		}
 		break;
@@ -167,7 +168,7 @@ int Wave::float2raw(char *&raw, uint32_t &rawSize, const float *samp,
 		{
 			const float max = std::numeric_limits<char>::max();
 			for (uint32_t i = 0; i < sampSize; ++i) {
-				raw[i] = reinterpret_cast<char>(max*samp[i]);
+				raw[i] = static_cast<char>(max*samp[i]);
 			}
 		}
 		break;
@@ -176,7 +177,7 @@ int Wave::float2raw(char *&raw, uint32_t &rawSize, const float *samp,
 			const float max = std::numeric_limits<int16_t>::max();
 			int16_t *ptr = reinterpret_cast<int16_t*>(raw);
 			for (uint32_t i = 0; i < sampSize; ++i) {
-				ptr[i] = reinterpret_cast<int16_t>(max*samp[i]);
+				ptr[i] = static_cast<int16_t>(max*samp[i]);
 			}
 		}
 		break;
@@ -185,10 +186,10 @@ int Wave::float2raw(char *&raw, uint32_t &rawSize, const float *samp,
 			const float max = std::numeric_limits<int32_t>::max()-256;
 			char *ptr = raw;
 			for (uint32_t i = 0; i < sampSize; ++i) {
-				const int tmpSamp = reinterpret_cast<int>(max*samp[i]);
-				ptr[2] = reinterpret_cast<char>(tmpSamp >> 24);
-				ptr[1] = reinterpret_cast<char>(tmpSamp >> 16);
-				ptr[0] = reinterpret_cast<char>(tmpSamp >> 8);
+				const int tmpSamp = static_cast<int>(max*samp[i]);
+				ptr[2] = static_cast<char>(tmpSamp >> 24);
+				ptr[1] = static_cast<char>(tmpSamp >> 16);
+				ptr[0] = static_cast<char>(tmpSamp >> 8);
 				ptr += 3;
 			}
 		}
@@ -198,7 +199,7 @@ int Wave::float2raw(char *&raw, uint32_t &rawSize, const float *samp,
 			const float max = std::numeric_limits<int32_t>::max();
 			int32_t *ptr = reinterpret_cast<int32_t*>(raw);
 			for (uint32_t i = 0; i < sampSize; ++i) {
-				ptr[i] = reinterpret_cast<int32_t>(max*samp[i]);
+				ptr[i] = static_cast<int32_t>(max*samp[i]);
 			}
 		}
 		break;
@@ -233,23 +234,24 @@ int Wave::mix()
 	switch (format_.format) {
 		case WAVE_FORMAT_PCM:
 		rc = raw2float(data, dataSize, data_.get(), size_, format_.bitsPerSample);
-		if (EXIT_SUCSESS != rc) {
+		if (EXIT_SUCCESS != rc) {
 			return rc;
 		}
 		break;
 		case WAVE_FORMAT_IEEE_FLOAT:
-		data = data_.release();
+		data = reinterpret_cast<float*>(data_.release());
 		dataSize = size_;
 		break;
 		default:
 		return EXIT_FAILURE;
 	}
 	size_ = dataSize/format_.channels;
-	data_.reset(new float[size_]);
+	data_.reset(new char[size_]);
+	float *dst = reinterpret_cast<float*>(data_.get());
 	for (uint32_t i = 0; i < size_; ++i) {
-		data_[i] = data[format_.channels*i];
+		dst[i] = data[format_.channels*i];
 		for (uint16_t c = 1; c < format_.channels; ++c) {
-			data_[i] = mixSamples(data_[i], data[format_.channels*i+c]);
+			dst[i] = mixSamples(dst[i], data[format_.channels*i+c]);
 		}
 	}
 	delete[] data;
@@ -257,8 +259,9 @@ int Wave::mix()
 	if (WAVE_FORMAT_PCM == format_.format) {
 		char *rawData = nullptr;
 		uint32_t rawDataSize = 0;
-		rc = float2raw(rawData, rawDataSize, data_.get(), size_, format_.bitsPerSample);
-		if (EXIT_SUCSESS != rc) {
+		rc = float2raw(rawData, rawDataSize, reinterpret_cast<float*>(data_.get()),
+			size_, format_.bitsPerSample);
+		if (EXIT_SUCCESS != rc) {
 			return rc;
 		}
 		data_.reset(rawData);
@@ -279,7 +282,7 @@ std::unique_ptr<Wave> Wave::getChannel(uint16_t channel)
 	if (1 == format_.channels) {
 		chWave->size_ = size_;
 		chWave->data_.reset(new char[size_]);
-		memcpy(chWave->data_.get(), data_, size_);
+		memcpy(chWave->data_.get(), data_.get(), size_);
 		return chWave;//just return a copy of itself
 	}
 	chWave->format_.channels = 1;
