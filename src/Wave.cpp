@@ -277,6 +277,9 @@ int Wave::mix()
 
 std::unique_ptr<Wave> Wave::getChannel(uint16_t channel)
 {
+	if (channel >= format_.channels) {
+		return std::unique_ptr<Wave>();
+	}
 	std::unique_ptr<Wave> chWave(new Wave());
 	memcpy(&chWave->descriptor_, &descriptor_, sizeof(descriptor_));
 	memcpy(&chWave->format_, &format_, sizeof(format_));
@@ -289,7 +292,7 @@ std::unique_ptr<Wave> Wave::getChannel(uint16_t channel)
 	chWave->format_.channels = 1;
 	chWave->size_ = size_/format_.channels;
 	chWave->data_.reset(new char[chWave->size_]);
-	chWave->descriptor_.size = size_+headerSize-8;
+	chWave->descriptor_.size = chWave->size_+headerSize-8;
 	chWave->format_.byteRate = chWave->format_.sampleRate*chWave->format_.channels*
 		chWave->format_.bitsPerSample/8;
 	chWave->format_.blockAlign = chWave->format_.channels*chWave->format_.bitsPerSample/8;
@@ -312,7 +315,7 @@ std::unique_ptr<Wave> Wave::getChannel(uint16_t channel)
 				{
 					int16_t *src = reinterpret_cast<int16_t*>(data_.get());
 					int16_t *dst = reinterpret_cast<int16_t*>(chWave->data_.get());
-					for (uint32_t i = 0; i < chWave->size_; ++i) {
+					for (uint32_t i = 0; i < chWave->size_/sizeof(int16_t); ++i) {
 						dst[i] = src[i*format_.channels+channel];
 					}
 				}
@@ -322,7 +325,7 @@ std::unique_ptr<Wave> Wave::getChannel(uint16_t channel)
 					char *src = data_.get();
 					char *dst = chWave->data_.get();
 					src += 3*channel;
-					for (uint32_t i = 0; i < chWave->size_; ++i) {
+					for (uint32_t i = 0; i < chWave->size_/3; ++i) {
 						dst[0] = src[0];
 						dst[1] = src[1];
 						dst[2] = src[2];
@@ -335,7 +338,7 @@ std::unique_ptr<Wave> Wave::getChannel(uint16_t channel)
 				{
 					int32_t *src = reinterpret_cast<int32_t*>(data_.get());
 					int32_t *dst = reinterpret_cast<int32_t*>(chWave->data_.get());
-					for (uint32_t i = 0; i < chWave->size_; ++i) {
+					for (uint32_t i = 0; i < chWave->size_/sizeof(int32_t); ++i) {
 						dst[i] = src[i*format_.channels+channel];
 					}
 				}
@@ -349,7 +352,7 @@ std::unique_ptr<Wave> Wave::getChannel(uint16_t channel)
 		{
 			float *src = reinterpret_cast<float*>(data_.get());
 			float *dst = reinterpret_cast<float*>(chWave->data_.get());
-			for (uint32_t i = 0; i < chWave->size_; ++i) {
+			for (uint32_t i = 0; i < chWave->size_/sizeof(float); ++i) {
 				dst[i] = src[i*format_.channels+channel];
 			}
 		}

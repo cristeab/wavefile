@@ -63,6 +63,69 @@ int main()
                 std::cout << "Cannot save " << newFilename << std::endl;
             }
         } while (false);
+
+        //test split in separate channels
+        do {
+            rc = wav.load(filePath);
+            if (EXIT_SUCCESS != rc) {
+                std::cout << "Cannot load " << fileList[i] << std::endl;
+                break;
+            }
+            std::string newFilename(fileList[i]);
+            switch (wav.getChannels()) {
+                case 1:
+                {
+                    newFilename[0] = 'l';
+                    newFilename[1] = 'f';
+                    newFilename[2] = 't';
+                    std::cout << "Spliting " << newFilename << std::endl;
+                    std::unique_ptr<Wave> leftWav = wav.getChannel(0);
+                    if (nullptr == leftWav.get()) {
+                        std::cout << "Left channel is null" << std::endl;
+                        break;
+                    }
+                    rc = leftWav->save(newFilename);
+                    if (EXIT_SUCCESS != rc) {
+                        std::cout << "Cannot save " << newFilename << std::endl;
+                    }
+                }
+                break;
+                case 2:
+                {
+                    newFilename[0] = 'l';
+                    newFilename[1] = 'f';
+                    newFilename[2] = 't';
+                    std::cout << "Splitting " << newFilename << std::endl;
+                    std::unique_ptr<Wave> leftWav = wav.getChannel(0);
+                    if (nullptr == leftWav.get()) {
+                        std::cout << "Left channel is null" << std::endl;
+                        break;
+                    }
+                    rc = leftWav->save(newFilename);
+                    if (EXIT_SUCCESS != rc) {
+                        std::cout << "Cannot save " << newFilename << std::endl;
+                    }
+                    dumpWaveHeader(*leftWav);
+                    newFilename[0] = 'r';
+                    newFilename[1] = 'g';
+                    newFilename[2] = 't';
+                    std::cout << "Splitting " << newFilename << std::endl;
+                    std::unique_ptr<Wave> rightWav = wav.getChannel(1);
+                    if (nullptr == rightWav.get()) {
+                        std::cout << "Right channel is null" << std::endl;
+                        break;
+                    }
+                    rc = rightWav->save(newFilename);
+                    if (EXIT_SUCCESS != rc) {
+                        std::cout << "Cannot save " << newFilename << std::endl;
+                    }
+                    dumpWaveHeader(*rightWav);
+                }
+                break;
+                default:
+                std::cout << "Unknown channels " << wav.getChannels() << std::endl;
+            }
+        } while (false);
     }
 
     return EXIT_SUCCESS;
