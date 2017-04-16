@@ -16,12 +16,12 @@ public:
 	virtual ~Wave() = default;
 	int load(const std::string &filePath);
 	int save(const std::string &filePath);
+	uint32_t getSize() const { return size_; }
+	uint16_t getChannels() const { return format_.channels; }
+	uint32_t getSampleRateHz() const { return format_.sampleRate; }
+	uint16_t getBitsPerSample() const { return format_.bitsPerSample; }
+	uint16_t getWaveFormat() const { return format_.format; }
 	int mix();
-	uint32_t getSize() { return size_; }
-	uint16_t getChannels() { return format_.channels; }
-	uint32_t getSampleRateHz() { return format_.sampleRate; }
-	uint16_t getBitsPerSample()	{ return format_.bitsPerSample; }
-	uint16_t getWaveFormat() { return format_.format; }
 	std::unique_ptr<Wave> getChannel(uint16_t channel);
 private:
 	Wave(const Wave&) = delete;
