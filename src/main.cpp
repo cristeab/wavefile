@@ -2,6 +2,7 @@
 #include "Wave.h"
 
 #define ROOT_DIR "/Users/bogdan/projects/wavefile/test/"
+
 static
 const char* fileList[] = {"ref_float_32bit.wav", "ref_float_32bit_stereo.wav", 
     "ref_pcm_16bit.wav", "ref_pcm_16bit_stereo.wav"};
@@ -22,7 +23,7 @@ int main()
 {
     Wave wav;
     for (uint32_t i = 0; i < fileListSize; ++i) {
-        std::cout << "Processing " << fileList[i] << std::endl;
+        std::cout << i << ". Processing " << fileList[i] << std::endl;
         std::string filePath(ROOT_DIR);
         filePath += fileList[i];
         int rc = wav.load(filePath);
@@ -50,6 +51,7 @@ int main()
             newFilename[0] = 'm';
             newFilename[1] = 'i';
             newFilename[2] = 'x';
+            std::cout << "Mixing " << newFilename << std::endl;
             rc = wav.mix();
             if (EXIT_SUCCESS != rc) {
                 std::cout << "Cannot mix " << fileList[i] << std::endl;

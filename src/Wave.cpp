@@ -240,15 +240,16 @@ int Wave::mix()
 		break;
 		case WAVE_FORMAT_IEEE_FLOAT:
 		data = reinterpret_cast<float*>(data_.release());
-		dataSize = size_;
+		dataSize = size_/sizeof(float);
 		break;
 		default:
 		return EXIT_FAILURE;
 	}
-	size_ = dataSize/format_.channels;
+	size_ = dataSize*sizeof(float)/format_.channels;
 	data_.reset(new char[size_]);
 	float *dst = reinterpret_cast<float*>(data_.get());
-	for (uint32_t i = 0; i < size_; ++i) {
+	const uint32_t numSamples = dataSize/format_.channels;
+	for (uint32_t i = 0; i < numSamples; ++i) {
 		dst[i] = data[format_.channels*i];
 		for (uint16_t c = 1; c < format_.channels; ++c) {
 			dst[i] = mixSamples(dst[i], data[format_.channels*i+c]);
@@ -260,7 +261,7 @@ int Wave::mix()
 		char *rawData = nullptr;
 		uint32_t rawDataSize = 0;
 		rc = float2raw(rawData, rawDataSize, reinterpret_cast<float*>(data_.get()),
-			size_, format_.bitsPerSample);
+			size_/sizeof(float), format_.bitsPerSample);
 		if (EXIT_SUCCESS != rc) {
 			return rc;
 		}
