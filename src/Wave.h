@@ -21,8 +21,11 @@ public:
 	uint32_t getSampleRateHz() const { return format_.sampleRate; }
 	uint16_t getBitsPerSample() const { return format_.bitsPerSample; }
 	uint16_t getWaveFormat() const { return format_.format; }
+	uint16_t getByteRate() const { return format_.byteRate; }
+	uint16_t getBlockAlign() const { return format_.blockAlign; }
 	int mix();
 	std::unique_ptr<Wave> getChannel(uint16_t channel);
+	const char* getData() const { return data_.get(); }
 private:
 	Wave(const Wave&) = delete;
 	Wave& operator=(const Wave&) = delete;
